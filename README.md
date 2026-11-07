@@ -39,7 +39,7 @@ vibe-buddy/
 ├─ ui.h / ui.cpp          หน้าจอ 400×300 (การ์ด, READY, NO LINK)
 ├─ vb_protocol.h/.cpp     ตัวอ่าน NDJSON ขนาดเล็ก (ไม่ใช้ library)
 ├─ display_bsp.h/.cpp     ไดรเวอร์ ST7305 (จาก Waveshare)
-├─ iosevka24.h / iosevka15.h  ฟอนต์ Iosevka Bold (generate จาก tools/fontgen.py)
+├─ inter24.h / inter15.h  ฟอนต์ Inter Bold (generate จาก tools/fontgen.py)
 ├─ fonts/                 สัญญาอนุญาต OFL ของฟอนต์
 ├─ opencode-plugin/       plugin ของ OpenCode (POST มาที่ bridge)
 ├─ tools/bridge.ps1       bridge: HTTP + serial + state
@@ -50,8 +50,8 @@ vibe-buddy/
 
 ## ฟอนต์
 
-ใช้ **Iosevka Bold** — ฟอนต์ coding แบบ vector ภายใต้ SIL OFL
-(`fonts/IOSEVKA-OFL.txt`, https://github.com/be5invis/Iosevka)
+ใช้ **Inter Bold** — ฟอนต์ sans แบบ vector ภายใต้ SIL OFL
+(`fonts/INTER-OFL.txt`, https://github.com/rsms/inter)
 
 - ชื่อการ์ด / สถานะ / เวลา: **24 px** (Bold)
 - บรรทัดรอง: **15 px** (Bold)
