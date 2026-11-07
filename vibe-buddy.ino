@@ -84,6 +84,18 @@ static void agent_tag(const char *agent, char *out) {
 }
 
 static void apply_event(const VbEvent &e) {
+  // Plan usage rides along with the idle event; a state event without it (for
+  // example while a task is open) leaves the last known numbers alone.
+  if (is_state_event(e.event)) {
+    ui.usageValid = e.usageValid;
+    if (e.usageValid) {
+      ui.usageHour = e.usageHour;
+      ui.usageWeek = e.usageWeek;
+      ui.usageMonth = e.usageMonth;
+    }
+    dirty = true;
+  }
+
   if (e.statCount > 0) {
     ui.statCount = e.statCount > 3 ? 3 : e.statCount;
     for (int i = 0; i < ui.statCount; i++) {
@@ -104,6 +116,7 @@ static void apply_event(const VbEvent &e) {
       snprintf(ui.cards[i].project, sizeof(ui.cards[i].project), "%s", task.project);
       ui.cards[i].status = status_of(task.status);
       ui.cards[i].elapsed = task.elapsedS;
+      ui.cards[i].tokS = task.tokS;
       ui.cards[i].baseMs = now;
     }
     ui.status = ui.cards[0].status;
@@ -212,6 +225,7 @@ void setup() {
   ui.tasksTotal = 0;
   ui.hour = -1;
   ui.headline[0] = 0;
+  ui.usageValid = false;
 
   print_banner();
   ui_begin();

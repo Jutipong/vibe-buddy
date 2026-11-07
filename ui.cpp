@@ -235,6 +235,14 @@ static void draw_card(int y, const VbCard &card) {
   const char *state = card_status_word(card.status);
   draw_text(show_project ? 198 : 54, y + 50, F_SMALL, INK, state);
 
+  // Output speed while the agent is streaming; hidden when the plugin has no
+  // fresh measurement, so the box never shows a stale number.
+  if (card.status == VB_WORKING && card.tokS >= 1) {
+    char speed[12];
+    snprintf(speed, sizeof(speed), "%dt/s", (int)(card.tokS + 0.5));
+    draw_text(280, y + 50, F_SMALL, INK, speed);
+  }
+
   char elapsed[16];
   format_elapsed(elapsed, sizeof(elapsed), card.elapsed);
   draw_text_right(390, y + 52, F_BODY, INK, elapsed, 2);
@@ -256,15 +264,8 @@ static void draw_big_word(const char *word, int top, uint16_t color) {
   canvas.print(word);
 }
 
-static void draw_stats(const VbUi &ui, int first_baseline) {
-  for (int i = 0; i < ui.statCount; i++) {
-    draw_text_center(first_baseline + i * 26, F_SMALL, INK, ui.stats[i], 2);
-  }
-}
-
 static void draw_quiet(const VbUi &ui) {
-  const char *word = status_word(ui.status);
-  draw_big_word(word, 74, INK);
+  draw_big_word(status_word(ui.status), 74, INK);
 
   canvas.fillRect(40, 148, 320, 2, INK);
 
@@ -272,17 +273,15 @@ static void draw_quiet(const VbUi &ui) {
   if (ui.headline[0]) {
     fit(line, sizeof(line), F_TITLE, ui.headline, 352, 2);
     draw_text_center(182, F_TITLE, INK, line, 2);
-
-    if (ui.status == VB_WORKING || ui.status == VB_INPUT) {
-      char elapsed[16];
-      format_elapsed(elapsed, sizeof(elapsed), ui.headlineElapsed);
-      draw_text_center(206, F_SMALL, INK, elapsed, 2);
-    }
+  } else if (ui.usageValid) {
+    // OpenCode Go plan usage, as go-usage reports it (percent of allowance in
+    // the rolling five-hour, weekly and monthly windows).
+    snprintf(line, sizeof(line), "H:%d%%  W:%d%%  M:%d%%", ui.usageHour, ui.usageWeek,
+             ui.usageMonth);
+    draw_text_center(186, F_SMALL, INK, line, 2);
   } else if (ui.status == VB_READY) {
     draw_text_center(182, F_SMALL, INK, "waiting for agents", 2);
   }
-
-  if (ui.statCount > 0) draw_stats(ui, 242);
 }
 
 static void draw_no_link() {

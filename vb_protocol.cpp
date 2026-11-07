@@ -162,6 +162,22 @@ static bool read_long(const char *b, const char *e, long &out) {
   return true;
 }
 
+// Numbers with a decimal point (tok_s arrives as 42.3, for example).
+static bool read_double(const char *b, const char *e, double &out) {
+  b = skip_ws(b, e);
+  if (b >= e) return false;
+  char tmp[24];
+  int n = 0;
+  while (b < e && n < (int)sizeof(tmp) - 1 &&
+         ((*b >= '0' && *b <= '9') || *b == '.' || *b == '-' || *b == '+' || *b == 'e' || *b == 'E')) {
+    tmp[n++] = *b++;
+  }
+  if (n == 0) return false;
+  tmp[n] = 0;
+  out = strtod(tmp, nullptr);
+  return true;
+}
+
 struct ArrIter {
   const char *p;
   const char *e;
@@ -218,6 +234,8 @@ bool vb_parse_event(const char *line, VbEvent &out) {
       if (obj_find(ib, ie, "project", &fb, &fe)) read_str(fb, fe, t.project, (int)sizeof(t.project));
       if (obj_find(ib, ie, "status", &fb, &fe)) read_str(fb, fe, t.status, (int)sizeof(t.status));
       if (obj_find(ib, ie, "elapsed_s", &fb, &fe)) read_long(fb, fe, t.elapsedS);
+      double speed = 0;
+      if (obj_find(ib, ie, "tok_s", &fb, &fe) && read_double(fb, fe, speed)) t.tokS = speed;
       out.taskCount++;
     }
     if (out.tasksTotal < out.taskCount) out.tasksTotal = out.taskCount;
@@ -235,6 +253,24 @@ bool vb_parse_event(const char *line, VbEvent &out) {
 
   if (obj_find(b, e, "hour", &vb, &ve) && read_long(vb, ve, n)) out.hour = (int)n;
   if (obj_find(b, e, "day", &vb, &ve) && read_long(vb, ve, n)) out.day = (int)n;
+
+  // OpenCode Go plan usage, attached to the idle event: percentages of the
+  // rolling five-hour, weekly and monthly allowances.
+  if (obj_find(b, e, "usage", &vb, &ve) && *vb == '{') {
+    long hour = 0, week = 0, month = 0;
+    bool any = false;
+    const char *fb = nullptr;
+    const char *fe = nullptr;
+    if (obj_find(vb, ve, "hour", &fb, &fe) && read_long(fb, fe, hour)) any = true;
+    if (obj_find(vb, ve, "week", &fb, &fe) && read_long(fb, fe, week)) any = true;
+    if (obj_find(vb, ve, "month", &fb, &fe) && read_long(fb, fe, month)) any = true;
+    if (any) {
+      out.usageValid = true;
+      out.usageHour = (int)hour;
+      out.usageWeek = (int)week;
+      out.usageMonth = (int)month;
+    }
+  }
 
   if (out.title[0] == 0 && out.taskCount > 0) {
     snprintf(out.title, sizeof(out.title), "%s", out.tasks[0].title);

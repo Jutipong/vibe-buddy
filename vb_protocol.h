@@ -23,6 +23,7 @@ struct VbTask {
   char project[VB_PROJECT_LEN];
   char status[VB_STATUS_LEN];
   long elapsedS;
+  double tokS;  // output speed measured by the plugin, 0 when unknown
 };
 
 struct VbEvent {
@@ -35,6 +36,10 @@ struct VbEvent {
   char stats[3][VB_STAT_LEN];
   int hour;  // device.heartbeat only; -1 when missing
   int day;   // YYYYMMDD, 0 when missing
+  bool usageValid;  // OpenCode Go plan usage, sent with the idle event
+  int usageHour;
+  int usageWeek;
+  int usageMonth;
 };
 
 // Fills `out` and returns true for a well-formed v1 message. Returns false for

@@ -11,6 +11,7 @@ param(
   [string]$Port = "COM5",
   [int]$HttpPort = 7331,
   [int]$Baud = 115200,
+  [int]$StaleSeconds = 90,
   [switch]$Verbose
 )
 
@@ -24,10 +25,12 @@ $statsFile = Join-Path $stateDir "stats.json"
 
 $sessions = @{}   # session id -> hashtable
 $stats = @{ day = (Get-Date -Format "yyyyMMdd"); done = 0; asks = 0; busy = 0 }
+$usage = @{ hour = $null; week = $null; month = $null; at = [datetime]::MinValue }
 $lastSignature = ""
 $lastHeartbeat = [datetime]::MinValue
 $lastPersist = [datetime]::MinValue
 $lastBusyTick = Get-Date
+$lastStaleCheck = [datetime]::MinValue
 $deviceReady = $false
 $lastStateKind = ""   # done | error | idle, so a quiet screen keeps its word
 
@@ -143,6 +146,9 @@ function New-Session($id, $cwd) {
     title = $title
     status = "working"
     since = (Get-Date)
+    last_seen = (Get-Date)
+    tok_s = 0
+    tok_at = [datetime]::MinValue
   }
 }
 
@@ -175,6 +181,10 @@ function Get-TaskList {
     if ($session.status -eq "done") { continue }
     $elapsed = [int]((Get-Date) - $session.since).TotalSeconds
     if ($elapsed -lt 0) { $elapsed = 0 }
+    $tok_s = 0
+    if ($session.tok_s -and ((Get-Date) - $session.tok_at).TotalMilliseconds -le 2000) {
+      $tok_s = [math]::Round([double]$session.tok_s, 1)
+    }
     $open += [pscustomobject]@{
       id = $session.id
       agent = "opencode"
@@ -182,6 +192,7 @@ function Get-TaskList {
       project = $session.project
       status = $session.status
       elapsed_s = $elapsed
+      tok_s = $tok_s
       _since = $session.since
     }
   }
@@ -233,12 +244,27 @@ function Publish-State {
     $event = if ($kind -eq "done") { "task.done" } else { "task.error" }
   }
 
-  $signature = "$kind|" + (($tasks | ForEach-Object { "$($_.id):$($_.status):$($_.title)" }) -join ",")
+  # Plan usage belongs on the quiet screen only, and only while it is recent
+  # enough to trust (the go-usage plugin refreshes it on its own schedule).
+  $usagePayload = $null
+  if ($kind -eq "idle" -and ((Get-Date) - $script:usage.at).TotalMinutes -lt 30) {
+    if ($null -ne $script:usage.hour -or $null -ne $script:usage.week -or $null -ne $script:usage.month) {
+      $usagePayload = @{
+        hour = $script:usage.hour
+        week = $script:usage.week
+        month = $script:usage.month
+      }
+    }
+  }
+
+  $signature = "$kind|" +
+    (($tasks | ForEach-Object { "$($_.id):$($_.status):$($_.title):$($_.tok_s)" }) -join ",") +
+    "|u:$($usagePayload.hour),$($usagePayload.week),$($usagePayload.month)"
   if ($signature -eq $script:lastSignature) { return }
   $script:lastSignature = $signature
   $script:lastStateKind = $kind
 
-  Send-Line @{
+  $line = @{
     version = 1
     event = $event
     title = $title
@@ -246,6 +272,8 @@ function Publish-State {
     tasks_total = $tasks.Count
     stats = Get-Stats
   }
+  if ($null -ne $usagePayload) { $line.usage = $usagePayload }
+  Send-Line $line
   Write-Host "[state] $event  ($($tasks.Count) task(s)) $title" -ForegroundColor Yellow
 }
 
@@ -255,6 +283,10 @@ function Handle-Agent($payload) {
   Roll-Day
   $cwd = $payload.cwd
   $event = $payload.event
+
+  if ($sessions.ContainsKey($id)) {
+    $sessions[$id].last_seen = (Get-Date)
+  }
 
   switch ($event) {
     "working" {
@@ -291,6 +323,13 @@ function Handle-Agent($payload) {
     }
     default { return }
   }
+
+  # Stored after the switch so a brand-new session (created above) takes it too.
+  if ($null -ne $payload.tok_s -and $sessions.ContainsKey($id)) {
+    $sessions[$id].tok_s = [double]$payload.tok_s
+    $sessions[$id].tok_at = (Get-Date)
+  }
+
   Publish-State
 }
 
@@ -366,8 +405,20 @@ function Handle-Client($client) {
         Send-Line $payload
       }
       Send-Http $stream "200 OK" @{ ok = $true }
+    } elseif ($request.method -eq "POST" -and $request.path -eq "/v1/usage") {
+      $payload = $null
+      try { $payload = $request.body | ConvertFrom-Json } catch { }
+      if ($payload) {
+        $script:usage.hour = if ($null -ne $payload.hour) { [int]$payload.hour } else { $null }
+        $script:usage.week = if ($null -ne $payload.week) { [int]$payload.week } else { $null }
+        $script:usage.month = if ($null -ne $payload.month) { [int]$payload.month } else { $null }
+        $script:usage.at = Get-Date
+        $script:lastSignature = ""
+        Publish-State
+      }
+      Send-Http $stream "200 OK" @{ ok = $true }
     } elseif ($request.method -eq "GET" -and $request.path -like "/v1/status*") {
-      $status = @(Get-TaskList | Select-Object id, agent, title, project, status, elapsed_s)
+      $status = @(Get-TaskList | Select-Object id, agent, title, project, status, elapsed_s, tok_s)
       Send-Http $stream "200 OK" @{
         device = [bool]$script:deviceReady
         port = $Port
@@ -405,6 +456,23 @@ while ($true) {
   $now = Get-Date
   Roll-Day
 
+  # A session that has gone quiet (OpenCode closed, a turn dropped) must not
+  # leave a card up forever. The plugin sends a heartbeat every 30 s while a
+  # turn is open, so silence beyond the timeout means it is really gone.
+  if (($now - $lastStaleCheck).TotalSeconds -ge 5) {
+    $lastStaleCheck = $now
+    $dropped = $false
+    foreach ($id in @($sessions.Keys)) {
+      $session = $sessions[$id]
+      if (($now - $session.last_seen).TotalSeconds -gt $StaleSeconds) {
+        $sessions.Remove($id)
+        Write-Host "[stale] dropped $($session.title) after $StaleSeconds s" -ForegroundColor DarkYellow
+        $dropped = $true
+      }
+    }
+    if ($dropped) { Publish-State }
+  }
+
   if (($now - $lastHeartbeat).TotalSeconds -ge 5) {
     $lastHeartbeat = $now
     Send-Line @{ version = 1; event = "device.heartbeat"; build = "bridge-0.1"; hour = $now.Hour; day = [int]($now.ToString("yyyyMMdd")) }
@@ -425,3 +493,4 @@ while ($true) {
 
   Start-Sleep -Milliseconds 25
 }
+

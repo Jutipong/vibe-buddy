@@ -21,6 +21,7 @@ struct VbCard {
   char project[40];
   VbStatus status;
   long elapsed;            // seconds already elapsed when the line arrived
+  double tokS;             // output speed in tokens/second, 0 when unknown
   unsigned long baseMs;    // millis() at that moment
 };
 
@@ -33,10 +34,16 @@ struct VbUi {
   int cardCount;           // cards actually shown (at most 3)
   VbCard cards[3];
   int tasksTotal;          // tasks the daemon knows about
-  int statCount;
+  int statCount;           // kept for the protocol, no longer drawn
   char stats[3][40];
   int hour;                // -1 when no heartbeat has arrived yet
   bool blink;              // the sketch flips this while a task needs input
+
+  // OpenCode Go plan usage, in percent, as the go-usage plugin reports it.
+  bool usageValid;
+  int usageHour;           // rolling five-hour window
+  int usageWeek;
+  int usageMonth;
 };
 
 void ui_begin();
