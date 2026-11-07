@@ -34,17 +34,29 @@ Backup firmware เดิม (นาฬิกา VolosR) อยู่ที่ `
 ## โครงไฟล์
 
 ```
-vibebuddy-rlcd/
+vibe-buddy/
 ├─ vibe-buddy.ino         firmware: boot banner, serial reader, state machine
 ├─ ui.h / ui.cpp          หน้าจอ 400×300 (การ์ด, READY, NO LINK)
 ├─ vb_protocol.h/.cpp     ตัวอ่าน NDJSON ขนาดเล็ก (ไม่ใช้ library)
 ├─ display_bsp.h/.cpp     ไดรเวอร์ ST7305 (จาก Waveshare)
-├─ poppins_fonts.h        Poppins 20px / 12px
+├─ ark12.h                ฟอนต์ Ark Pixel 12px (generate จาก tools/fontgen.py)
+├─ fonts/                 สัญญาอนุญาต OFL ของฟอนต์
 ├─ opencode-plugin/       plugin ของ OpenCode (POST มาที่ bridge)
 ├─ tools/bridge.ps1       bridge: HTTP + serial + state
+├─ tools/fontgen.py       TTF → GFX header + PNG preview
 ├─ tools/fake-daemon.ps1  ยิง event ทดสอบโดยไม่ต้องมี daemon
-└─ backup/                merged.bin ของ firmware เดิม
+└─ backup/                merged.bin ของ firmware เดิม (ไม่ขึ้น git)
 ```
+
+## ฟอนต์
+
+ใช้ **Ark Pixel 12px Proportional (Latin)** — ฟอนต์พิกเซล 1-bit ภายใต้ SIL OFL
+(`fonts/ARK-PIXEL-OFL.txt`, https://github.com/TakWolf/ark-pixel-font)
+
+- ชื่อการ์ด / สถานะ / เวลา: วาดที่ **2×** (24 px) เพื่อให้อ่านจากระยะไกลได้
+- บรรทัดรอง: 12 px
+- คำใหญ่ READY/DONE/FAILED: ฟอนต์ built-in 5×7 ขยาย
+- สร้างใหม่/เปลี่ยนขนาดได้ด้วย `tools/fontgen.py` (ต้องมี Python + PIL)
 
 ---
 
@@ -142,7 +154,7 @@ plugin เป็น fire-and-forget: ถ้า bridge ไม่ได้รั�
 
 ## บทเรียนจากการ bring-up (สำคัญถ้าจะแก้ต่อ)
 
-1. **ฟอนต์ Poppins เป็น row-padded** — `Adafruit_GFX::print()` อ่าน bitmap
+1. **ฟอนต์พิกเซลต้อง pad ทุกแถวเป็น byte** — `Adafruit_GFX::print()` อ่าน bitmap
    แบบต่อเนื่องข้ามแถว จึงใช้ได้เฉพาะฟอนต์ที่ไม่ pad (เช่น Orbitron)
    → `ui.cpp` มี `draw_text()` เขียนเองแบบอ่านใหม่ทุกแถว (`ESP32-S3-AI` ทำแบบเดียวกัน)
 2. **`setTextSize()` มีผลกับ custom font** ใน Adafruit GFX 1.12.6 — อักษรหลัง
