@@ -211,7 +211,22 @@ static void draw_header(const VbUi &ui) {
   } else {
     right[0] = 0;
   }
-  if (right[0]) draw_text_right(390, 28, F_SMALL, INK, right);
+  if (right[0]) draw_text_right(390, 30, F_SMALL, INK, right);
+
+  // Plan usage sits centred between the state word and the task count, so it
+  // stays in view while an agent works. The middle dot the footer uses is not
+  // in this font, so the parts are simply spaced out.
+  if (ui.usageValid) {
+    char usage[28];
+    snprintf(usage, sizeof(usage), "H:%d W:%d M:%d", ui.usageHour, ui.usageWeek, ui.usageMonth);
+    const int word_width = text_width(F_BODY, word, 2);
+    const int usage_width = text_width(F_SMALL, usage);
+    const int left = 13 + word_width + 8;
+    const int right_edge = right[0] ? (390 - text_width(F_SMALL, right)) : 390;
+    int x = (left + right_edge - usage_width) / 2;
+    if (x < left) x = left;
+    draw_text(x, 30, F_SMALL, INK, usage);
+  }
   canvas.fillRect(12, 41, 376, 2, INK);
 }
 

@@ -244,10 +244,11 @@ function Publish-State {
     $event = if ($kind -eq "done") { "task.done" } else { "task.error" }
   }
 
-  # Plan usage belongs on the quiet screen only, and only while it is recent
-  # enough to trust (the go-usage plugin refreshes it on its own schedule).
+  # Plan usage rides on every state event so the header can show it while an
+  # agent works, and the READY screen can show it in full when nothing is open.
+  # It is dropped once it has not been refreshed for half an hour.
   $usagePayload = $null
-  if ($kind -eq "idle" -and ((Get-Date) - $script:usage.at).TotalMinutes -lt 30) {
+  if (((Get-Date) - $script:usage.at).TotalMinutes -lt 30) {
     if ($null -ne $script:usage.hour -or $null -ne $script:usage.week -or $null -ne $script:usage.month) {
       $usagePayload = @{
         hour = $script:usage.hour
@@ -413,6 +414,7 @@ function Handle-Client($client) {
         $script:usage.week = if ($null -ne $payload.week) { [int]$payload.week } else { $null }
         $script:usage.month = if ($null -ne $payload.month) { [int]$payload.month } else { $null }
         $script:usage.at = Get-Date
+        Write-Host "[usage] H:$($script:usage.hour) W:$($script:usage.week) M:$($script:usage.month)" -ForegroundColor Cyan
         $script:lastSignature = ""
         Publish-State
       }
