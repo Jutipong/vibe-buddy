@@ -114,15 +114,15 @@ def draw_text(draw, glyphs, x, baseline, text, scale=1):
         cursor += g["adv"]
 
 
-def render_preview(glyphs, y_advance, title_scale, elapsed_scale, out_path):
+def render_preview(title_glyphs, small_glyphs, title_scale, elapsed_scale, title_baseline, out_path):
     image = Image.new("L", (W, H), 255)
     draw = ImageDraw.Draw(image)
     right = 390
 
     # header
-    draw_text(draw, glyphs, 13, 33, "NEED YOU", 2)
+    draw_text(draw, title_glyphs, 13, 33, "NEED YOU", title_scale)
     label = "3 TASKS"
-    draw_text(draw, glyphs, right - text_width(glyphs, label), 30, label, 1)
+    draw_text(draw, small_glyphs, right - text_width(small_glyphs, label), 28, label, 1)
     draw.rectangle((12, 41, 387, 42), fill=0)
 
     cards = [
@@ -133,13 +133,12 @@ def render_preview(glyphs, y_advance, title_scale, elapsed_scale, out_path):
     for index, (tag, title, project, state, elapsed) in enumerate(cards):
         y = 52 + index * 80
         draw.rectangle((12, y, 46, y + 22), fill=0)
-        draw_text(draw, glyphs, 12 + (34 - text_width(glyphs, tag)) // 2, y + 16, tag, 1)
-        baseline = y + (26 if title_scale == 2 else 20)
-        draw_text(draw, glyphs, 54, baseline, title, title_scale)
-        draw_text(draw, glyphs, 54, y + 52, project, 1)
-        draw_text(draw, glyphs, 198, y + 50, state, 1)
-        draw_text(draw, glyphs, right - text_width(glyphs, elapsed) * elapsed_scale,
-                  y + (52 if elapsed_scale == 2 else 50), elapsed, elapsed_scale)
+        draw_text(draw, small_glyphs, 12 + (34 - text_width(small_glyphs, tag)) // 2, y + 16, tag, 1)
+        draw_text(draw, title_glyphs, 54, y + title_baseline, title, title_scale)
+        draw_text(draw, small_glyphs, 54, y + 52, project, 1)
+        draw_text(draw, small_glyphs, 198, y + 50, state, 1)
+        draw_text(draw, title_glyphs, right - text_width(title_glyphs, elapsed) * elapsed_scale,
+                  y + 52, elapsed, elapsed_scale)
         draw.rectangle((12, y + 66, 387, y + 66), fill=0)
 
     image.save(out_path)
@@ -152,10 +151,12 @@ def main():
     parser.add_argument("ttf")
     parser.add_argument("name")
     parser.add_argument("--size", type=int, default=12)
+    parser.add_argument("--small-size", type=int, default=0)
     parser.add_argument("--header", default=None)
     parser.add_argument("--preview", default=None)
     parser.add_argument("--title-scale", type=int, default=2)
     parser.add_argument("--elapsed-scale", type=int, default=2)
+    parser.add_argument("--title-baseline", type=int, default=26)
     args = parser.parse_args()
 
     glyphs, y_advance = load_glyphs(args.ttf, args.size)
@@ -168,7 +169,12 @@ def main():
         emit_header(args.name, glyphs, y_advance, args.header, os.path.basename(args.ttf))
         print(f"wrote {args.header}")
     if args.preview:
-        render_preview(glyphs, y_advance, args.title_scale, args.elapsed_scale, args.preview)
+        small = glyphs
+        if args.small_size and args.small_size != args.size:
+            small, small_advance = load_glyphs(args.ttf, args.small_size)
+            print(f"small size={args.small_size} yAdvance={small_advance}")
+        render_preview(glyphs, small, args.title_scale, args.elapsed_scale,
+                       args.title_baseline, args.preview)
         print(f"wrote {args.preview}")
 
 
