@@ -39,7 +39,7 @@ vibe-buddy/
 ├─ ui.h / ui.cpp          หน้าจอ 400×300 (การ์ด, READY, NO LINK)
 ├─ vb_protocol.h/.cpp     ตัวอ่าน NDJSON ขนาดเล็ก (ไม่ใช้ library)
 ├─ display_bsp.h/.cpp     ไดรเวอร์ ST7305 (จาก Waveshare)
-├─ inter24.h / inter15.h  ฟอนต์ Inter Bold (generate จาก tools/fontgen.py)
+├─ ark12.h                ฟอนต์ Ark Pixel 12px (generate จาก tools/fontgen.py)
 ├─ fonts/                 สัญญาอนุญาต OFL ของฟอนต์
 ├─ opencode-plugin/       plugin ของ OpenCode (POST มาที่ bridge)
 ├─ tools/bridge.ps1       bridge: HTTP + serial + state
@@ -50,14 +50,13 @@ vibe-buddy/
 
 ## ฟอนต์
 
-ใช้ **Inter Bold** — ฟอนต์ sans แบบ vector ภายใต้ SIL OFL
-(`fonts/INTER-OFL.txt`, https://github.com/rsms/inter)
+ใช้ **Ark Pixel 12px Proportional (Latin)** — ฟอนต์พิกเซล 1-bit ภายใต้ SIL OFL
+(`fonts/ARK-PIXEL-OFL.txt`, https://github.com/TakWolf/ark-pixel-font)
 
-- ชื่อการ์ด / สถานะ / เวลา: **24 px** (Bold)
-- บรรทัดรอง: **15 px** (Bold)
+- ชื่อการ์ด / สถานะ / เวลา: วาดที่ **2×** (24 px) เพื่อให้อ่านจากระยะไกลได้
+- บรรทัดรอง: 12 px
 - คำใหญ่ READY/DONE/FAILED: ฟอนต์ built-in 5×7 ขยาย
-- สร้างใหม่/เปลี่ยนขนาด/เปลี่ยนฟอนต์ได้ด้วย `tools/fontgen.py` (ต้องมี Python + PIL)
-  แล้วดู preview PNG ก่อนแฟลช: `python tools/fontgen.py <ttf> <name> --size 24 --small-size 15 --preview out.png`
+- สร้างใหม่/เปลี่ยนขนาดได้ด้วย `tools/fontgen.py` (ต้องมี Python + PIL)
 
 ---
 
