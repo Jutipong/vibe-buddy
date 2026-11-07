@@ -1,0 +1,320 @@
+#include "ui.h"
+
+#include <Adafruit_GFX.h>
+#include <stdio.h>
+#include <string.h>
+
+#include "display_bsp.h"
+#include "poppins_fonts.h"
+
+static const int W = 400;
+static const int H = 300;
+static const uint16_t INK = 1;
+static const uint16_t PAPER = 0;
+
+// Same wiring as the clock sketch this box ran before (Waveshare S3_RLCD_4_2).
+static DisplayPort port(12, 11, 5, 40, 41, W, H);
+static GFXcanvas1 canvas(W, H);
+
+// These fonts store every glyph row padded to a byte. Adafruit's own reader
+// walks the bitmap bit by bit across rows and therefore only copes with fonts
+// packed without padding (like the Orbitron set); that is why the text below is
+// drawn by draw_text() instead of canvas.print(), the same way the ESP32-S3-AI
+// project does it. Latin only: Thai was dropped to keep the font risk low.
+static const GFXfont *const F_TITLE = &poppins_text_font;
+static const GFXfont *const F_BODY = &poppins_text_font;
+static const GFXfont *const F_SMALL = &poppins_small_font;
+
+// --- text --------------------------------------------------------------------
+
+// Returns the number of bytes of the next UTF-8 code point in `p`.
+static int utf8_next(const char *p, uint32_t &code) {
+  const uint8_t c = (uint8_t)p[0];
+  if (c < 0x80) {
+    code = c;
+    return 1;
+  }
+  if ((c & 0xE0) == 0xC0) {
+    code = ((uint32_t)(c & 0x1F) << 6) | ((uint8_t)p[1] & 0x3F);
+    return 2;
+  }
+  if ((c & 0xF0) == 0xE0) {
+    code = ((uint32_t)(c & 0x0F) << 12) | (((uint8_t)p[1] & 0x3F) << 6) |
+           ((uint8_t)p[2] & 0x3F);
+    return 3;
+  }
+  if ((c & 0xF8) == 0xF0) {
+    code = ((uint32_t)(c & 0x07) << 18) | (((uint8_t)p[1] & 0x3F) << 12) |
+           (((uint8_t)p[2] & 0x3F) << 6) | ((uint8_t)p[3] & 0x3F);
+    return 4;
+  }
+  code = '?';
+  return 1;
+}
+
+static void draw_text(int x, int y, const GFXfont *font, uint16_t color, const char *s) {
+  int16_t cursor = x;
+  const char *p = s;
+  while (*p) {
+    uint32_t code;
+    const int used = utf8_next(p, code);
+    p += used;
+    // Unsupported code points (for example Thai, which the Latin font does not
+    // carry) become a question mark so a title never silently disappears.
+    if (code < font->first || code > font->last) code = '?';
+    const GFXglyph &g = font->glyph[code - font->first];
+    if (g.width == 0 || g.height == 0) {
+      cursor += g.xAdvance;
+      continue;
+    }
+    const int16_t x0 = cursor + g.xOffset;
+    const int16_t y0 = y + g.yOffset;
+    const int stride = (g.width + 7) / 8;
+    const uint8_t *bmp = font->bitmap + g.bitmapOffset;
+    for (uint16_t yy = 0; yy < g.height; yy++) {
+      for (uint16_t xx = 0; xx < g.width; xx++) {
+        const uint8_t bits = bmp[yy * stride + (xx >> 3)];
+        if (bits & (0x80 >> (xx & 7))) {
+          canvas.drawPixel(x0 + xx, y0 + yy, color);
+        }
+      }
+    }
+    cursor += g.xAdvance;
+  }
+}
+
+static int text_width(const GFXfont *font, const char *s) {
+  int width = 0;
+  const char *p = s;
+  while (*p) {
+    uint32_t code;
+    p += utf8_next(p, code);
+    if (code < font->first || code > font->last) code = '?';
+    width += font->glyph[code - font->first].xAdvance;
+  }
+  return width;
+}
+
+static void draw_text_right(int right, int y, const GFXfont *font, uint16_t color,
+                            const char *s) {
+  draw_text(right - text_width(font, s), y, font, color, s);
+}
+
+static void draw_text_center(int y, const GFXfont *font, uint16_t color, const char *s) {
+  draw_text((W - text_width(font, s)) / 2, y, font, color, s);
+}
+
+// Copies `s` into `out`, shortening it with ".." until it fits `max_width`.
+static void fit(char *out, size_t cap, const GFXfont *font, const char *s, int max_width) {
+  snprintf(out, cap, "%s", s);
+  if (text_width(font, out) <= max_width) return;
+  size_t n = strlen(out);
+  while (n > 0) {
+    do {
+      n--;
+    } while (n > 0 && ((unsigned char)out[n] & 0xC0) == 0x80);
+    out[n] = 0;
+    char candidate[96];
+    snprintf(candidate, sizeof(candidate), "%s..", out);
+    if (text_width(font, candidate) <= max_width) {
+      snprintf(out, cap, "%s", candidate);
+      return;
+    }
+  }
+  snprintf(out, cap, "..");
+}
+
+static void format_elapsed(char *out, size_t cap, long seconds) {
+  if (seconds < 0) seconds = 0;
+  const long h = seconds / 3600;
+  const long m = (seconds % 3600) / 60;
+  const long s = seconds % 60;
+  if (h > 0) {
+    snprintf(out, cap, "%ldh%02ld", h, m);
+  } else {
+    snprintf(out, cap, "%ld:%02ld", m, s);
+  }
+}
+
+static const char *status_word(VbStatus status) {
+  switch (status) {
+    case VB_WORKING: return "WORKING";
+    case VB_INPUT: return "NEED YOU";
+    case VB_DONE: return "DONE";
+    case VB_FAILED: return "FAILED";
+    case VB_READY:
+    default: return "READY";
+  }
+}
+
+static const char *card_status_word(VbStatus status) {
+  switch (status) {
+    case VB_INPUT: return "NEED YOU";
+    case VB_DONE: return "DONE";
+    case VB_FAILED: return "FAILED";
+    case VB_WORKING:
+    case VB_READY:
+    default: return "WORKING";
+  }
+}
+
+// The panel wants its own bit order, so the canvas is repacked pixel by pixel.
+// Bytes that are entirely blank are skipped: most of a 400x300 page is paper.
+static void push_canvas() {
+  const uint8_t *buffer = canvas.getBuffer();
+  const int bytes_per_row = (W + 7) / 8;
+  port.RLCD_ColorClear(ColorWhite);
+  for (int y = 0; y < H; y++) {
+    const uint8_t *row = buffer + (size_t)y * bytes_per_row;
+    for (int bx = 0; bx < bytes_per_row; bx++) {
+      const uint8_t bits = row[bx];
+      if (bits == 0) continue;
+      const int x0 = bx * 8;
+      for (int bit = 0; bit < 8; bit++) {
+        if (x0 + bit >= W) break;
+        if (bits & (0x80 >> bit)) {
+          port.RLCD_SetPixel((uint16_t)(x0 + bit), (uint16_t)y, ColorBlack);
+        }
+      }
+    }
+  }
+  port.RLCD_Display();
+}
+
+// --- screens -----------------------------------------------------------------
+
+static void draw_header(const VbUi &ui) {
+  const char *word = status_word(ui.status);
+  const bool flash = ui.status == VB_INPUT && ui.blink;
+  if (flash) {
+    const int w = text_width(F_BODY, word);
+    canvas.fillRect(8, 2, w + 14, 36, INK);
+    draw_text(13, 33, F_BODY, PAPER, word);
+  } else {
+    draw_text(13, 33, F_BODY, INK, word);
+  }
+
+  char right[24];
+  if (ui.tasksTotal > 0) {
+    snprintf(right, sizeof(right), "%d TASK%s", ui.tasksTotal,
+             ui.tasksTotal == 1 ? "" : "S");
+  } else if (ui.hour >= 0) {
+    snprintf(right, sizeof(right), "%02d:00", ui.hour);
+  } else {
+    right[0] = 0;
+  }
+  if (right[0]) draw_text_right(390, 30, F_SMALL, INK, right);
+  canvas.fillRect(12, 41, 376, 2, INK);
+}
+
+static void draw_card(int y, const VbCard &card) {
+  // Agent tag, filled so it reads at arm's length.
+  canvas.fillRect(12, y, 34, 22, INK);
+  const int tag_width = text_width(F_SMALL, card.agent);
+  draw_text(12 + (34 - tag_width) / 2, y + 16, F_SMALL, PAPER, card.agent);
+
+  char title[96];
+  fit(title, sizeof(title), F_TITLE, card.title, 322);
+  draw_text(54, y + 21, F_TITLE, INK, title);
+
+  char project[64];
+  fit(project, sizeof(project), F_SMALL, card.project, 130);
+  // The title falls back to the project name when the branch says nothing, and
+  // printing it twice wastes the one line the card has.
+  const bool show_project = project[0] != 0 && strcmp(project, card.title) != 0;
+  if (show_project) draw_text(54, y + 52, F_SMALL, INK, project);
+
+  const char *state = card_status_word(card.status);
+  draw_text(show_project ? 198 : 54, y + 50, F_SMALL, INK, state);
+
+  char elapsed[16];
+  format_elapsed(elapsed, sizeof(elapsed), card.elapsed);
+  draw_text_right(390, y + 52, F_BODY, INK, elapsed);
+
+  canvas.fillRect(12, y + 66, 376, 1, INK);
+}
+
+static void draw_big_word(const char *word, int top, uint16_t color) {
+  canvas.setFont();
+  int size = strlen(word) <= 6 ? 6 : 5;
+  int width = (int)strlen(word) * 6 * size;
+  while (width > W - 24 && size > 3) {
+    size--;
+    width = (int)strlen(word) * 6 * size;
+  }
+  canvas.setTextSize(size);
+  canvas.setTextColor(color);
+  canvas.setCursor((W - width) / 2, top);
+  canvas.print(word);
+}
+
+static void draw_stats(const VbUi &ui, int first_baseline) {
+  for (int i = 0; i < ui.statCount; i++) {
+    draw_text_center(first_baseline + i * 26, F_SMALL, INK, ui.stats[i]);
+  }
+}
+
+static void draw_quiet(const VbUi &ui) {
+  const char *word = status_word(ui.status);
+  draw_big_word(word, 74, INK);
+
+  canvas.fillRect(40, 148, 320, 2, INK);
+
+  char line[96];
+  if (ui.headline[0]) {
+    fit(line, sizeof(line), F_TITLE, ui.headline, 352);
+    draw_text_center(182, F_TITLE, INK, line);
+
+    if (ui.status == VB_WORKING || ui.status == VB_INPUT) {
+      char elapsed[16];
+      format_elapsed(elapsed, sizeof(elapsed), ui.headlineElapsed);
+      draw_text_center(206, F_SMALL, INK, elapsed);
+    }
+  } else if (ui.status == VB_READY) {
+    draw_text_center(182, F_SMALL, INK, "waiting for agents");
+  }
+
+  if (ui.statCount > 0) draw_stats(ui, 242);
+}
+
+static void draw_no_link() {
+  canvas.fillScreen(INK);
+  draw_big_word("NO LINK", 96, PAPER);
+  canvas.setFont();
+  canvas.setTextSize(2);
+  canvas.setTextColor(PAPER);
+  const char *line = "start vibebuddyd on the computer";
+  const int width = (int)strlen(line) * 6 * 2;
+  canvas.setCursor((W - width) / 2, 180);
+  canvas.print(line);
+}
+
+void ui_begin() {
+  port.RLCD_Init();
+  canvas.fillScreen(PAPER);
+  push_canvas();
+}
+
+void ui_render(const VbUi &ui) {
+  canvas.fillScreen(PAPER);
+  if (ui.noLink) {
+    draw_no_link();
+    push_canvas();
+    return;
+  }
+
+  if (ui.cardCount == 0) {
+    draw_quiet(ui);
+  } else {
+    draw_header(ui);
+    for (int i = 0; i < ui.cardCount; i++) {
+      draw_card(52 + i * 80, ui.cards[i]);
+    }
+    if (ui.tasksTotal > ui.cardCount) {
+      char more[32];
+      snprintf(more, sizeof(more), "+%d MORE", ui.tasksTotal - ui.cardCount);
+      draw_text_right(390, 296, F_SMALL, INK, more);
+    }
+  }
+  push_canvas();
+}

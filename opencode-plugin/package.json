@@ -1,0 +1,8 @@
+{
+  "name": "vibebuddy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sends OpenCode activity to the vibebuddy-bridge, which draws it on the ESP32-S3 RLCD box",
+  "type": "module",
+  "main": "index.js"
+}

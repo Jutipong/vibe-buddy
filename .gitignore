@@ -1,0 +1,14 @@
+# Runtime logs and the serial port's leftovers
+tools/bridge.log
+tools/bridge.err
+
+# A 16 MB full-flash backup of the clock firmware this box ran before; kept on
+# the machine, not worth a git object
+backup/*.bin
+
+# Node
+node_modules/
+
+# OS noise
+.DS_Store
+Thumbs.db
